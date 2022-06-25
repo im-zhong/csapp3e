@@ -32,6 +32,11 @@ float_bits float_twice(float_bits f)
         // becase exp must be 00000000
         // so after the shift, the sign must be 0
         // so we use '|' to add the original sign bit
+        // think a very interesting case:
+        // when f = 0|00000000|1000...0 = 2^-1 * 2^-126
+        // 2.0 * f will cause denormaolized to normolized, but how can we deal with it
+        // we just right shift the whole frac into the exponent part, which is just right!
+        // 2.0 * f = 2^-126 = 0|00000001|0000...0
         return (sign << 31) | (f << 1);
     }
 

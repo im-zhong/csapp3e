@@ -58,7 +58,7 @@ float_bits float_half(float_bits f)
         if ((frac & 0x1) == 1)
         {
             unsigned exp_frac = (f & INT_MAX) >> 1;
-            // round to even
+            // if lsb is 1, then add 1, which will cause round to even
             if ((exp_frac & 1) == 1)
             {
                 exp_frac += 1;
