@@ -182,10 +182,21 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
+  // method 1
+  // make all 1 into low 8 bits
+  // if all odd bits are 1, the x should be 0xAA
   x &= x >> 16;
   x &= x >> 8;
   x &= 0xAA;
   return !(x ^ 0xAA);
+
+  // method 2
+  // just make a 32-bits 0xAAAAAAAA mask and check
+  // int mask = 0xAA;
+  // mask |= mask << 8;
+  // mask |= mask << 16;
+  // x &= mask;
+  // return !(x ^ mask);
 }
 /*
  * negate - return -x
@@ -205,6 +216,9 @@ int negate(int x) { return ~x + 1; }
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
+  // 0x30 - 0x37: 0x00110xxx, so the check the b7-b2
+  // 0x38, 0x39 just check directly
+  // and do not forget check the high 24 bits is zero or not
   return (!(x & ~0xff) & !((x & 0xf8) ^ 0x30)) | !(x ^ 0x38) | !(x ^ 0x39);
 }
 /*
@@ -226,19 +240,18 @@ int conditional(int x, int y, int z) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  // 所以这道题目需要判断溢出
-  // 下面这个式子只能在没有溢出的时候使用
-  // 或者不不用判断，只需要判断xy异号，直接返回结果就行
-  // 同号相减不会导致溢出
+  // be careful of overflow
   int sign_x = x >> 31;
   int sign_y = y >> 31;
   // case 1: x < 0, y >= 0
   int case_1 = sign_x & !sign_y;
   // case 2: x >= 0, y < 0
-  int case_2 = !(sign_y & !sign_x);
-  // case 3: x >= 0 && y >= 0, x <= && y < 0
+  int case_2 = (sign_y & !sign_x);
+  // case 3: x >= 0 && y >= 0, x < 0 && y < 0
   int case_3 = !((y + ~x + 1) >> 31);
-  return case_2 & (case_1 | case_3);
+  // if (case_1 || case_3), return true
+  // if case_2, return false
+  return (!case_2) & (case_1 | case_3);
 }
 // 4
 /*
@@ -250,11 +263,16 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4
  */
 int logicalNeg(int x) {
+  // if x == 0, return 1
+  // if x != 0, return 0
+  // if any bit is 1, after these calculation, the lsb will 1
+  // otherwise the lsb will be 0
   x |= x >> 16;
   x |= x >> 8;
   x |= x >> 4;
   x |= x >> 2;
   x |= x >> 1;
+  // so the just take the lsb and check if it is equal to 1
   return (x & 1) ^ 1;
 }
 /* howManyBits - return the minimum number of bits required to represent x in
@@ -270,36 +288,36 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  // suppose x = 0x00ffffff
-  // binary search
-  // 第一次search完成之后，我们可以获得高16位是否存在1的信息
-  // 并且低十六位应该保存搜索结果
-  // 这样下次我们就可以在低十六位里面 按八位搜索 并且将结果保存哎低八位
+  // binary search the highest 1
+  // 第一次二分搜索
+  // 对32位的整数二分搜索，high_bits获得其高16位
+  // 情况一：若high_bits为零，则继续在低16位搜索，偏移量b16为0
+  // 情况二：若high_bits非零，则需要在高16位搜索，我们将高16位右移至低16位，
+  // 这样就可以与情况一保持一致，但是记录偏移量b16为16
+  // 第二次二分搜索
+  // 对低16位进行类似上述的处理过程，但是在高8位和低8位上进行搜索
+  // 最终将下一次需要搜索的区间放在低4位上，并记录偏移量b8
+  // ...
+  // 直到结束，最终x的值为0或1，表示最后1位是否为1
+  // 最终还要加上1位，用于表示符号位
 
-  // int initial_x = x;
   int minus_one = ~1 + 1;
-  // int min = 0x80 << 24;
-
+  int high_bits = 0;
   int b16 = 0;
   int b8 = 0;
   int b4 = 0;
   int b2 = 0;
   int b1 = 0;
   int b0 = 0;
-  int high_bits = 0;
-  // 下面的正数的搜索逻辑应该是对的了，但是如果是负数，我们就求他的补，刚好1的位置是对的
-  // 毕竟她们需要的位数大小是一样的
-  // if x < 0, x = ~x
-  int sign_x = x >> 31;
-  // x = ((~x + 1) & sign_x) | (x & ~sign_x);
-  // 这不tama是异或吗?????
-  // x = (~x & sign_x) | (x & ~sign_x);
-  x = sign_x ^ x;
 
-  // high_bits 还需要 & mask
+  // if x < 0, x = ~x; otherwise x remain the same
+  // becase when x is negative, ~x need the same bit as positive, not -x
+  x = (x >> 31) ^ x;
+
+  // get half high bits
   high_bits = (x >> 16) & (0xff | 0xff << 8);
-  // if high_bits == 0, b16 = 0; x = x >> b16;
-  // if high_bits != 0, b16 = 15; x = x >> 16;
+  // if high_bits == 0, b16 = 0, x = x >> 0;
+  // if high_bits != 0, b16 = 16, x = x >> 16;
   high_bits = !high_bits + minus_one;
   b16 = high_bits & 16;
   x >>= b16;
@@ -325,7 +343,7 @@ int howManyBits(int x) {
   x >>= b1;
 
   b0 = x;
-
+  // we also need 1 bit to be sign bit
   return b16 + b8 + b4 + b2 + b1 + b0 + 1;
 }
 // float
@@ -341,10 +359,9 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  unsigned f = uf;
-  unsigned sign = f >> 31;
-  unsigned exp = f >> 23 & 0xff;
-  unsigned frac = f & 0x7fffff;
+  unsigned sign = uf >> 31;
+  unsigned exp = uf >> 23 & 0xff;
+  unsigned frac = uf & 0x7fffff;
 
   if (exp == 0) {
     // non normalized
@@ -357,19 +374,18 @@ unsigned floatScale2(unsigned uf) {
     // 2.0 * f will cause denormaolized to normolized, but how can we deal with
     // it we just right shift the whole frac into the exponent part, which is
     // just right! 2.0 * f = 2^-126 = 0|00000001|0000...0
-    return (sign << 31) | (f << 1);
+    return (sign << 31) | (uf << 1);
   }
 
   if (exp == 0xff) {
     // the f should be infinite or nan, whatever situation
     // we just return the f is correct
-    return f;
+    return uf;
   }
 
   // normalized
   exp += 1;
-  // 这个操作可能溢出哦
-  // 如果在计算完成之后，exp == 0xff, frac should be zero
+  // if exp == 0xff, frac should be zero, because we overflow to infinite
   if (exp == 0xff) {
     frac = 0;
   }
@@ -388,47 +404,40 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-
-  unsigned f = uf;
+  unsigned sign = uf >> 31;
+  unsigned exp = (uf >> 23) & 0xff;
+  unsigned frac = uf & 0x7fffff;
+  int bias = 127; // 2^7 - 1
   unsigned E = 0;
-  unsigned k = 0;
-  int i = 0;
-
-  unsigned sign = f >> 31;
-  unsigned exp = (f >> 23) & 0xff;
-  unsigned frac = f & 0x7fffff;
-  // printf("frac = ");
-  // show_bytes(frac);
 
   // f < 1.0f, i should be zero
-  unsigned bias = 127;
   if (exp < 127u) {
     return 0;
   } else {
-    // exp = 127, frac = 0; then f = 1.0f
-    // normalized, M = 1.frac
-    frac = 0x800000 | frac;
-    // printf("frac = ");
-    // show_bytes(frac);
     // exp >= 127
+    // f is normalized, M = 1.frac
+    frac = 0x800000 | frac;
     E = exp - bias;
+    // |uf| = 1.frac * 2^E
+    // what we should do now is left or right shift frac
+    // to make the '.' on the right side of lsb
     if (E <= 23) {
-      k = 23 - E;
-      frac = frac >> k;
-    } else if (E < (23 + 8)) {
-      k = E - 23;
-      frac = frac << k;
+      // case 1: E <= 23, which means frac should right shift (23 - E) bits
+      frac = frac >> (23 - E);
+    } else if (E < 31) {
+      // case 2: E < 31(23 + 7), which means frac should left shift (E - 23)
+      // bits
+      frac = frac << (E - 23);
     } else {
+      // case 3: f is too large to fit in integer
+      // return TMin to indicate infinite
       return 0x80000000;
     }
-
-    // frac
-    i = frac;
+    // if uf < 0, frac = -frac
     if (sign == 1) {
-      // -i
-      i = ~i + 1;
+      frac = -frac;
     }
-    return i;
+    return frac;
   }
 }
 /*
@@ -445,14 +454,12 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-
   unsigned exp = 0u;
   unsigned frac = 0u;
   unsigned u = 0u;
+  int bias = 127; // 2^7 - 1
 
   // the smallest positive number
-  int bias = 127; // 2^7 - 1
-  int float_frac = 23;
   // nonnormalized E is 1 - bias = -126
   // and the smallest frac is 2^(-23)
   // so the min power is -(23 + 126) = -149
@@ -464,15 +471,17 @@ unsigned floatPower2(int x) {
   // the smallest normalized number is 1.0 * 2^(1 - bias)
   // so the min power is 1 - 127 = -126
   else if (x < -126) {
-    // [-149, -127] is nonnormalized number
+    // [-149, -127] is nonnormalized number: 0.frac * 2^(1-bias)
     exp = 0u;
-    frac = 1 << (float_frac - (1 - bias - x));
+    // 1 << k = 2^(k - 23)
+    // (k - 23) + (1 - bias) = x
+    frac = 1 << (x + 149);
   }
   // the biggest normallized number is 1.0 * 2^bias
   // so the max poser is bias
-  else if (x < 127 + 1) {
+  else if (x < 128) {
     // [-126, 127]
-    // normalized number
+    // normalized number: 1.0 * 2^(e-bias) = 2^x
     exp = x + bias;
     frac = 0;
   } else {
