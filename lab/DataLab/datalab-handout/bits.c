@@ -216,7 +216,7 @@ int negate(int x) { return ~x + 1; }
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  // 0x30 - 0x37: 0x00110xxx, so the check the b7-b2
+  // 0x30 - 0x37: 0x00110xxx, so the check the b7-b3
   // 0x38, 0x39 just check directly
   // and do not forget check the high 24 bits is zero or not
   return (!(x & ~0xff) & !((x & 0xf8) ^ 0x30)) | !(x ^ 0x38) | !(x ^ 0x39);
