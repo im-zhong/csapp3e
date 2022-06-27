@@ -230,6 +230,18 @@ int isAsciiDigit(int x) {
  */
 int conditional(int x, int y, int z) {
   int minus_one = ~1 + 1;
+  // return expr = (expr1(x) & y) | (expr2(x) & z)
+  // we want to control the final result of the whole expr to y or z
+  // so we need a total two result:
+  // if x != 0, expr = (-1 & y) | (0 & z) = y
+  // if x == 0, expr = (0 & y) | (-1 & z) = z
+  // which means
+  // if x != 0, expr1(x) = -1, expr2(x) = 0
+  // if x == 0, expr1(x) = 0, expr2(x) = -1
+  // then the whole expression (expr1(x) & y) | (expr2(x) & z) will work
+  // and finally, I found two expression which does these works
+  // expr1(x) = !x - 1
+  // expr2(x) = !!x - 1
   return ((!x + minus_one) & y) | ((!!x + minus_one) & z);
 }
 /*
