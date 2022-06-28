@@ -1,7 +1,6 @@
 // 2021/10/14
 // zhangzhong
-// 2.80
-//
+// Homework Problem 2.80
 
 #include <assert.h>
 #include <limits.h>
