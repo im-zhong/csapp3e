@@ -3,13 +3,11 @@
 
 #include <stdio.h>
 
-int main()
-{
-    unsigned ux = 1;
-    unsigned uy = -ux;
-    unsigned uz = -1;
+int main() {
+  unsigned ux = 1;
+  unsigned uy = -ux;
+  unsigned uz = -1;
 
-    printf("%u\n", uy);
-    printf("%u\n", uz);
-
+  printf("%u\n", uy);
+  printf("%u\n", uz);
 }
