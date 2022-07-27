@@ -33,6 +33,10 @@
 // 第二步 现在需要实现一个 explicit free list
 // 还有一个优化 就是去掉footer tag
 
+// 第三步，设计一个segregated list 系统
+// 简单来说 就是实现一个函数 输入size 输出对应的链表数组的下标
+// 这样的话，具体的策略可以修改 而不用修改实现代码
+
 /*********************************************************
  * NOTE TO STUDENTS: Before you do anything else, please
  * provide your team information in the following struct.
@@ -62,7 +66,14 @@ team_t team = {
 // 大小可以是一个page 4K = 2^12 = 1 << 12
 #define CHUNCK_SIZE (1 << 12)
 
+// 那这样的话，我需要实现一个辅助函数，通过查表实先2的幂的log
+
 #define MIN_BLOCK_SIZE 16
+#define MAX_LINEAR_SIZE 1024
+#define MAX_SEGRETATED_SIZE 4096
+// 最后一部分手算吧 反正只需要修改这些宏就可以了
+#define SEGREGATED_LIST_SIZE                                                   \
+  (((MAX_LINEAR_SIZE - MIN_BLOCK_SIZE) / 8) + 1 + 2 + 1)
 
 // list
 
@@ -101,6 +112,9 @@ static inline void list_erase(list_node_t *node) {
 }
 
 size_t umax(size_t x, size_t y) { return x > y ? x : y; }
+
+// 添加一个新的全局变量 表示heap_size
+size_t heap_size = 0;
 
 typedef char byte_t;
 typedef unsigned word_t;
@@ -156,8 +170,40 @@ inline static byte_t *next(byte_t *block_ptr) {
 // static void *head = NULL;
 
 static void *heap_ptr = NULL;
+static list_node_t *segregated_lists = NULL;
 // 我们还应该实现一个get_list_head
-static inline list_node_t *get_list_head() { return *(list_node_t **)heap_ptr; }
+// static inline list_node_t *get_list_head() { return *(list_node_t
+// **)heap_ptr; }
+
+// todo
+// 接下来就是实现关键的这两个函数 其实基本上就算实现完了
+// 剩下的代码几乎不需要改动 只需要把调用 get_list_head的地方改成新的函数就行
+// segregated free list
+// 128个item不算多 覆盖整张page 4K
+static inline size_t size_class(size_t size) {
+
+  // 那么我们就必须要进行一个assert了
+  assert((size & 7) == 0);
+  assert(size >= MIN_BLOCK_SIZE);
+
+  // 我们需要假设这是 align结束之后的size
+  if (size <= MAX_LINEAR_SIZE)
+    return (size >> 3) - 2;
+  else if (size <= 2048) {
+    // 这里还是需要算指数幂 查表不就行了!! 天才
+    return 127;
+  } else if (size <= 4096) {
+    return 128;
+  } else {
+    return 129;
+  }
+}
+
+static inline list_node_t *get_list_head(size_t size) {
+  size_t index = size_class(size);
+  // 首先获得数组的首地址，
+  return segregated_lists + index;
+}
 
 #define DEBUG_FLAG 0
 #define CHECK_FLAG 0
@@ -173,10 +219,11 @@ void debug_printf(const char *format, ...) {
 
 // must write a mm_check
 int mm_check(void) {
-
   if (!CHECK_FLAG) {
     return 1;
   }
+
+  size_t check_heap_size = 0;
 
   // todo 这个函数也需要改了
   // 我们需要从两个途径来遍历 一个是根据 implicit free list 遍历
@@ -184,7 +231,15 @@ int mm_check(void) {
   // 我只需要遍历整个链表就行了，
   // 然后打印一下各个块的情况，ok
   size_t free_block_count = 0;
-  byte_t *block_ptr = (byte_t *)heap_ptr + DWORD;
+  // 这里我们需要跳过segregated storage
+  byte_t *block_ptr =
+      (byte_t *)heap_ptr + SEGREGATED_LIST_SIZE * sizeof(list_node_t);
+
+  // 现在block_ptr应该指向begin block
+  word_t begin_block = *(word_t *)block_ptr;
+  assert(begin_block == 1);
+  block_ptr += DWORD;
+
   word_t header = get_header(block_ptr);
   word_t footer = get_footer(block_ptr);
   size_t block_size = get_size(header);
@@ -192,35 +247,73 @@ int mm_check(void) {
     assert(header == footer);
     // 输出一些信息
     // 这个快的大小和是否分配
-    // debug_printf("%zu/%d/%p:%p, ", block_size, is_allocated(header),
-    //              header_ptr(block_ptr), footer_ptr(block_ptr));
+    debug_printf("%zu/%d/%p:%p, ", block_size, is_allocated(header),
+                 header_ptr(block_ptr), footer_ptr(block_ptr));
+    check_heap_size += block_size;
+    if (!is_allocated(header)) {
+      ++free_block_count;
+    }
+
     block_ptr = next(block_ptr);
     header = get_header(block_ptr);
     footer = get_footer(block_ptr);
     block_size = get_size(header);
-
-    if (!is_allocated(header)) {
-      ++free_block_count;
-    }
   }
-  // debug_printf("\n");
+  debug_printf("\n");
+
+  // 还要加上begin end 和 segregated storage
+  check_heap_size += SEGREGATED_LIST_SIZE * sizeof(list_node_t) + DWORD;
+  if (check_heap_size != heap_size) {
+    debug_printf("check heap size: %d, heap size: %d\n", check_heap_size,
+                 heap_size);
+    assert(check_heap_size == heap_size);
+  }
 
   // 我需要保证所有free状态的节点都在freelist里面，她们两者应该是一一匹配的
   // 这个要怎么检查呢??
 
+  // todo 这里最后再改
   // 然后我需要遍历一下 explicit free list
   // 我在这里统计free_list节点的数量就可以了
   size_t list_node_count = 0;
-  list_node_t *head = get_list_head();
-  for (list_node_t *first = head->next; first != head; first = first->next) {
-    // first 刚好就是 block_ptr 的地址 只不过需要指针类型转换
-    word_t header = get_header((byte_t *)first);
-    size_t block_size = get_size(header);
-    ++list_node_count;
+  // list_node_t *head = get_list_head();
+  // for (list_node_t *first = head->next; first != head; first = first->next) {
+  //   // first 刚好就是 block_ptr 的地址 只不过需要指针类型转换
+  //   word_t header = get_header((byte_t *)first);
+  //   size_t block_size = get_size(header);
+  //   ++list_node_count;
+  // }
+
+  // 遍历所有的free list
+  list_node_t *head = NULL;
+  for (int i = 0; i < SEGREGATED_LIST_SIZE; ++i) {
+    head = &segregated_lists[i];
+    for (list_node_t *work = head->next; work != head; work = work->next) {
+      header = get_header((byte_t *)work);
+      block_size = get_size(header);
+      // todo 首先我们必须验证，我们的size是符合我们的size_class的
+      // 但是我怎么直到我们的size class呢??
+      // 通过size可以获得size class
+      assert(i == size_class(block_size));
+      list_node_count++;
+    }
   }
 
-  assert(free_block_count == list_node_count);
+  if (free_block_count != list_node_count) {
+    debug_printf("free block count: %d, list node count: %d\n",
+                 free_block_count, list_node_count);
+    assert(free_block_count == list_node_count);
+  }
   return 1;
+}
+
+// 确定一条原则，所有的size参数表示的都是整个block的大小
+// todo 根据size找到合适的list然后插入
+static inline void segregated_lists_insert(list_node_t *node, size_t size) {
+  // 除非这里的size错了
+  size_t block_size = get_size(get_header((byte_t *)node));
+  assert(size == block_size);
+  list_insert_after(&segregated_lists[size_class(size)], node);
 }
 
 // coalease block 一共有四种情况
@@ -246,6 +339,8 @@ static byte_t *coalease(byte_t *block_ptr) {
     size += get_size(next_header);
     // 因为下一个要被合并了 所以应该从free list中删除
     list_erase((list_node_t *)next(block_ptr));
+    // 因为我们自身的size也变了 所以我们自身也要从size中删除 然后再添加回去
+
   }
   // case3
   else if (!is_prev_allocated && is_next_allocated) {
@@ -266,8 +361,13 @@ static byte_t *coalease(byte_t *block_ptr) {
 
     block_ptr = prev(block_ptr);
   }
+  // 我们不能简单的直接改header的size了 因为现在
+  // size的大小会影响他在那个链表里面
+  list_erase((list_node_t *)block_ptr);
   set_header(block_ptr, size);
   set_footer(block_ptr, size);
+  // todo 添加
+  segregated_lists_insert((list_node_t *)block_ptr, size);
 
   return block_ptr;
 }
@@ -277,7 +377,10 @@ static byte_t *extend_heap(size_t size) {
   // 先不管了
   // 就假设对齐了吧
 
+  // 在这里我们检查一下 是不是必须要extend_heap 是不是哪里出了问题
+
   word_t *brk = mem_sbrk(size);
+  heap_size += size;
   // set header
   *(brk - 1) = size;
   // set footer
@@ -286,53 +389,94 @@ static byte_t *extend_heap(size_t size) {
   *(footer_ptr((byte_t *)brk) + 1) = 0 | 1;
 
   // insert this new block into our explicit free list
-  list_insert_after(get_list_head(), (list_node_t *)brk);
+  list_insert_after(get_list_head(size), (list_node_t *)brk);
 
   // 我们扩展一个heap 相当于在最后一个位置插入了一个块
   // 所以 如果前一个块是free的状态 还需要coalease
   return coalease((byte_t *)brk);
 }
 
+// 写一个测试segregated storage的程序 现在看起来没有写对啊
+void test_segregated_storage() {
+  // 那首先我们遍历整个链表数组
+  // 给定所有的size 看一下映射是不是对的
+  for (size_t i = 16; i <= 4096; i += 8) {
+    size_t index = size_class(i);
+    debug_printf("size: %d, size class: %d\n", i, index);
+  }
+}
+
 /*
  * mm_init - initialize the malloc package.
  */
 int mm_init(void) {
+  // 原来如此 这个程序会被调用多次 计算平均值 原来如此
+  heap_size = 0;
   // 好的好的 现在需要修改结构，我需要把一个双链表节点结构放在这里面
   // 我决定把指向head节点的head指针也放在heap里面 这样在后面实现segregated
   // list的时候 就不用每个size
   // class一个全局变量了，她们都得存放在heap的一个数组里面
   // 那么问题来了，我们为什么不一上来就分配一个page呢？
   // 或许这样编程简单一点？？
-  word_t *brk = mem_sbrk(6 * WORD);
-  // set heap ptr
-  heap_ptr = brk;
-  // set list head in the first word
-  *(list_node_t **)heap_ptr = (list_node_t *)(brk + 2);
+  // word_t *brk = mem_sbrk(6 * WORD);
+  // // set heap ptr
+  // heap_ptr = brk;
+  // // set list head in the first word
+  // *(list_node_t **)heap_ptr = (list_node_t *)(brk + 2);
 
+  // // begin block
+  // // header
+  // *(brk + 1) = MIN_BLOCK_SIZE | 1;
+  // list_init_head(get_list_head());
+  // // footer
+  // *(brk + 4) = MIN_BLOCK_SIZE | 1;
+
+  // // end block
+  // *(brk + 5) = 0 | 1;
+
+  // // 然后我们扩充整个head 就像没有内存的时候一样
+  // extend_heap(CHUNCK_SIZE);
+  // // 返回值要根据是否成功返回
+  // // -1: fail
+  // // 0: success
+
+  // test_segregated_storage();
+
+  word_t *brk = mem_sbrk(CHUNCK_SIZE);
+  heap_size += CHUNCK_SIZE;
+
+  heap_ptr = brk;
+  segregated_lists = (list_node_t *)heap_ptr;
+  for (size_t i = 0; i < SEGREGATED_LIST_SIZE; ++i) {
+    list_init_head(&segregated_lists[i]);
+  }
+
+  brk += SEGREGATED_LIST_SIZE * 2;
   // begin block
-  // header
-  *(brk + 1) = MIN_BLOCK_SIZE | 1;
-  list_init_head(get_list_head());
-  // footer
-  *(brk + 4) = MIN_BLOCK_SIZE | 1;
+  *brk = 0 | 1;
+
+  // 中间是一个大的payload 需要放置在合适的list里面
+  // 那我们首先计算其大小
+  size_t size =
+      CHUNCK_SIZE - WORD - WORD - SEGREGATED_LIST_SIZE * sizeof(list_node_t);
+  brk += 2;
+
+  set_header((byte_t *)brk, size);
+  set_footer((byte_t *)brk, size);
+  segregated_lists_insert((list_node_t *)brk, size);
+  brk = footer_ptr((byte_t *)brk);
+  // 插入到合适的位置 给定一个指针block 插入到合适的位置 可以写成一个函数
 
   // end block
-  *(brk + 5) = 0 | 1;
-
-  // 然后我们扩充整个head 就像没有内存的时候一样
-  extend_heap(CHUNCK_SIZE);
-  // 返回值要根据是否成功返回
-  // -1: fail
-  // 0: success
-
+  brk++;
+  *brk = 0 | 1;
   mm_check();
   return 0;
 }
 
 // 因为我们是32位的，所以刚好可以放在一个word里面
 
-byte_t *first_fit(size_t size) {
-  list_node_t *head = get_list_head();
+byte_t *first_fit(list_node_t *head, size_t size) {
   for (list_node_t *first = head->next; first != head; first = first->next) {
     // first 刚好就是 block_ptr 的地址 只不过需要指针类型转换
     word_t header = get_header((byte_t *)first);
@@ -364,14 +508,26 @@ byte_t *first_fit(size_t size) {
 //   return NULL;
 // }
 
+// todo 这里就需要从size对应的list开始找 找不到就找下一个
+// 到最后都找不到 就得extend heap了
 // size需要包含header和footer
+// find block 和 extend_heap 可以放在一起哎
 byte_t *find_block(size_t size) {
 
   // 我们有一个链表指针，始终指向第一个位置
   // 结束的位置就是epi
   // 那合理就必须得全部修改了
   // 因为现在我们只需要遍历explict free list
-  return first_fit(size);
+  byte_t *block_ptr = NULL;
+  for (size_t i = size_class(size); i < SEGREGATED_LIST_SIZE; ++i) {
+    block_ptr = first_fit(&segregated_lists[i], size);
+    if (block_ptr) {
+      return block_ptr;
+    }
+  }
+
+  // 那么我们就只能进行一个heap的extend
+  return extend_heap(umax(size, CHUNCK_SIZE));
 }
 
 // 函数参数中的size应该代表什么
@@ -384,7 +540,8 @@ void split(byte_t *block_ptr, size_t size) {
   set_header(block_ptr, curr_size - size);
   set_footer(block_ptr, curr_size - size);
   // split出来的这个块 我得再加到list里面
-  list_insert_after(get_list_head(), (list_node_t *)block_ptr);
+  segregated_lists_insert((list_node_t *)block_ptr, curr_size - size);
+  // list_insert_after(get_list_head(), (list_node_t *)block_ptr);
 }
 
 /*
@@ -402,15 +559,16 @@ void *mm_malloc(size_t size) {
 
   // 第二步应该是对size进行alignment
   size = ALIGN(size + DWORD);
+  debug_printf("malloc %zu: \n", size);
 
   // 第三步，需要遍历整个链表，使用firstfir方法，找到一个大小能够容纳size的地址
   // size需要加上header和footer的大小
+  //
   byte_t *block_ptr = find_block(size);
-
   // 第四步如果没有找到，分配一个
-  if (!block_ptr) {
-    block_ptr = extend_heap(umax(size, CHUNCK_SIZE));
-  }
+  // if (!block_ptr) {
+  //   block_ptr = extend_heap(umax(size, CHUNCK_SIZE));
+  // }
 
   list_erase((list_node_t *)block_ptr);
 
@@ -427,7 +585,6 @@ void *mm_malloc(size_t size) {
 
   // mark as allocated
 
-  debug_printf("malloc %zu: \n", size);
   mm_check();
 
   return block_ptr;
@@ -439,7 +596,9 @@ void *mm_malloc(size_t size) {
 void mm_free(void *ptr) {
   if (ptr) {
     // 现在free需要把节点添加到explicit free list链表头
-    list_insert_after(get_list_head(), (list_node_t *)ptr);
+    size_t block_size = get_size(get_header((byte_t *)ptr));
+    // list_insert_after(get_list_head(), (list_node_t *)ptr);
+    segregated_lists_insert((list_node_t *)ptr, block_size);
     coalease(ptr);
   }
 
