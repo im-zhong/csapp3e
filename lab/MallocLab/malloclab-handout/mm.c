@@ -15,6 +15,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "memlib.h"
@@ -69,11 +71,17 @@ team_t team = {
 // 那这样的话，我需要实现一个辅助函数，通过查表实先2的幂的log
 
 #define MIN_BLOCK_SIZE 16
-#define MAX_LINEAR_SIZE 1024
-#define MAX_SEGRETATED_SIZE 4096
-// 最后一部分手算吧 反正只需要修改这些宏就可以了
-#define SEGREGATED_LIST_SIZE                                                   \
-  (((MAX_LINEAR_SIZE - MIN_BLOCK_SIZE) / 8) + 1 + 2 + 1)
+
+// 实现一个计时函数 我需要观察 find_block为什么这么慢
+void performance() {
+  struct timespec begin;
+  clock_gettime(CLOCK_MONOTONIC, &begin);
+
+  // do something
+  struct timespec end;
+  clock_gettime(CLOCK_MONOTONIC, &end);
+  end.tv_nsec - begin.tv_nsec;
+}
 
 // list
 
@@ -110,6 +118,12 @@ static inline void list_erase_between(list_node_t *prev, list_node_t *next) {
 static inline void list_erase(list_node_t *node) {
   list_erase_between(node->prev, node->next);
 }
+
+// static inline unsigned ulog2(unsigned x) {
+//   float fx = (float)x;
+//   unsigned ux = *(unsigned *)&fx;
+//   return ((ux >> 23) & 0xff) - 127;
+// }
 
 size_t umax(size_t x, size_t y) { return x > y ? x : y; }
 
@@ -175,6 +189,24 @@ static list_node_t *segregated_lists = NULL;
 // static inline list_node_t *get_list_head() { return *(list_node_t
 // **)heap_ptr; }
 
+#define MAX_LINEAR_SIZE 128
+#define MAX_SEGRETATED_SIZE 4096
+// 最后一部分手算吧 反正只需要修改这些宏就可以了
+// (MAX_SEGRETATED_SIZE/MAX_LINEAR_SIZE) = 2^k
+#define SEGREGATED_LIST_SIZE ((MAX_LINEAR_SIZE / 8) + 5)
+
+// #define MAX_LINEAR_SIZE 1024
+// #define MAX_SEGRETATED_SIZE 4096
+// #define SEGREGATED_LIST_SIZE ((MAX_LINEAR_SIZE / 8) + 2)
+
+// #define MAX_LINEAR_SIZE 256
+// #define MAX_SEGRETATED_SIZE 4096
+// #define SEGREGATED_LIST_SIZE ((MAX_LINEAR_SIZE / 8) + 4)
+
+// #define MAX_LINEAR_SIZE 64
+// #define MAX_SEGRETATED_SIZE 4096
+// #define SEGREGATED_LIST_SIZE ((MAX_LINEAR_SIZE / 8) + 6)
+
 // todo
 // 接下来就是实现关键的这两个函数 其实基本上就算实现完了
 // 剩下的代码几乎不需要改动 只需要把调用 get_list_head的地方改成新的函数就行
@@ -187,16 +219,67 @@ static inline size_t size_class(size_t size) {
   assert(size >= MIN_BLOCK_SIZE);
 
   // 我们需要假设这是 align结束之后的size
-  if (size <= MAX_LINEAR_SIZE)
+  // if (size <= MAX_LINEAR_SIZE)
+  //   return (size >> 3) - 2;
+  // else if (size <= 2048) {
+  //   // 这里还是需要算指数幂 查表不就行了!! 天才
+  //   return 127;
+  // } else if (size <= 4096) {
+  //   return 128;
+  // } else {
+  //   return 129;
+  // }
+
+  // size_t base = (MAX_LINEAR_SIZE >> 3) - 2;
+  // if (size <= MAX_LINEAR_SIZE) {
+  //   return (size >> 3) - 2;
+  // } else if (size <= (MAX_LINEAR_SIZE << 1)) {
+  //   return base + 1;
+  // } else if (size <= (MAX_LINEAR_SIZE << 2)) {
+  //   return base + 2;
+  // } else if (size <= (MAX_LINEAR_SIZE << 3)) {
+  //   return base + 3;
+  // } else if (size <= (MAX_LINEAR_SIZE << 4)) {
+  //   return base + 4;
+  // } else {
+  //   return base + 5;
+  // }
+
+  size_t base = (MAX_LINEAR_SIZE >> 3) - 2;
+  if (size <= MAX_LINEAR_SIZE) {
     return (size >> 3) - 2;
-  else if (size <= 2048) {
-    // 这里还是需要算指数幂 查表不就行了!! 天才
-    return 127;
-  } else if (size <= 4096) {
-    return 128;
+  } else if (size <= (MAX_LINEAR_SIZE << 1)) {
+    return base + 1;
+  } else if (size <= (MAX_LINEAR_SIZE << 2)) {
+    return base + 2;
+  } else if (size <= (MAX_LINEAR_SIZE << 3)) {
+    return base + 3;
+  } else if (size <= (MAX_LINEAR_SIZE << 4)) {
+    return base + 4;
+  } else if (size <= (MAX_LINEAR_SIZE << 5)) {
+    return base + 5;
   } else {
-    return 129;
+    return base + 6;
   }
+
+  // size_t base = (MAX_LINEAR_SIZE >> 3) - 2;
+  // if (size <= MAX_LINEAR_SIZE) {
+  //   return (size >> 3) - 2;
+  // } else if (size <= (MAX_LINEAR_SIZE << 1)) {
+  //   return base + 1;
+  // } else if (size <= (MAX_LINEAR_SIZE << 2)) {
+  //   return base + 2;
+  // } else if (size <= (MAX_LINEAR_SIZE << 3)) {
+  //   return base + 3;
+  // } else if (size <= (MAX_LINEAR_SIZE << 4)) {
+  //   return base + 4;
+  // } else if (size <= (MAX_LINEAR_SIZE << 5)) {
+  //   return base + 5;
+  // } else if (size <= (MAX_LINEAR_SIZE << 6)) {
+  //   return base + 6;
+  // } else {
+  //   return base + 7;
+  // }
 }
 
 static inline list_node_t *get_list_head(size_t size) {
@@ -268,6 +351,8 @@ int mm_check(void) {
                  heap_size);
     assert(check_heap_size == heap_size);
   }
+  debug_printf("check heap size: %d, heap size: %d\n", check_heap_size,
+               heap_size);
 
   // 我需要保证所有free状态的节点都在freelist里面，她们两者应该是一一匹配的
   // 这个要怎么检查呢??
@@ -513,21 +598,42 @@ byte_t *first_fit(list_node_t *head, size_t size) {
 // size需要包含header和footer
 // find block 和 extend_heap 可以放在一起哎
 byte_t *find_block(size_t size) {
+  struct timespec begin;
+  clock_gettime(CLOCK_MONOTONIC, &begin);
+
+  // do something
 
   // 我们有一个链表指针，始终指向第一个位置
   // 结束的位置就是epi
   // 那合理就必须得全部修改了
   // 因为现在我们只需要遍历explict free list
   byte_t *block_ptr = NULL;
-  for (size_t i = size_class(size); i < SEGREGATED_LIST_SIZE; ++i) {
+  size_t class = size_class(size);
+  size_t i = class;
+  for (; i < SEGREGATED_LIST_SIZE; ++i) {
     block_ptr = first_fit(&segregated_lists[i], size);
     if (block_ptr) {
       return block_ptr;
     }
   }
 
+  // 最后一个我们倒着搜索 看看会不会有什么变化
+  // for (list_node_t *work = segregated_lists[i].prev;
+  //      work != &segregated_lists[i]; work = work->prev) {
+  //   word_t header = get_header((byte_t *)work);
+  //   size_t block_size = get_size(header);
+  //   if (!is_allocated(header) && size <= block_size) {
+  //     return (byte_t *)work;
+  //   }
+  // }
+
+  byte_t *ptr = extend_heap(umax(size, CHUNCK_SIZE));
+  struct timespec end;
+  clock_gettime(CLOCK_MONOTONIC, &end);
+  debug_printf("find_block: loop size: %d, costs: %ld\n", i - class,
+               end.tv_nsec - begin.tv_nsec);
   // 那么我们就只能进行一个heap的extend
-  return extend_heap(umax(size, CHUNCK_SIZE));
+  return ptr;
 }
 
 // 函数参数中的size应该代表什么
@@ -606,10 +712,15 @@ void mm_free(void *ptr) {
   mm_check();
 }
 
+bool is_last_block(byte_t *block_ptr) {
+  return get_header(next(block_ptr)) == 1;
+}
+
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *ptr, size_t size) {
+  debug_printf("realloc %p: \n", ptr);
   void *oldptr = ptr;
   void *newptr;
   size_t copySize;
@@ -641,11 +752,17 @@ void *mm_realloc(void *ptr, size_t size) {
   } else {
     // size > block_size
 
+    // 还有一种情况 就是前面的一个block也是free的 这样我们就可以利用前面的block
+    // 从而不用再申请内存了
+
     // todo
     // 其实还有一种情况不需要复制，就是我们的下一个块是free的，如果加上这个块刚好够的话
     // 就不用动了 就直接合并成一个 然后做一个split就可以了
     byte_t *next_block = next(ptr);
     word_t next_header = get_header(next_block);
+    byte_t *prev_block = prev(ptr);
+    word_t prev_footer = *(word_t *)(ptr - DWORD);
+
     if (!is_allocated(next_header) &&
         block_size + get_size(next_header) >= size) {
       // 这里我们直接合并就可以了，然后再执行一次可选的split
@@ -659,7 +776,53 @@ void *mm_realloc(void *ptr, size_t size) {
       if (newSize - size >= MIN_BLOCK_SIZE) {
         split(ptr, size);
       }
-    } else {
+    }
+
+    else if (is_last_block(ptr)) {
+      // 我想统计一下一共会触发多少次
+      static int last_block_trigger_count = 0;
+      debug_printf("last block: %d\n", ++last_block_trigger_count);
+
+      // 那么我们同样也是不需要拷贝内存的 只需要在后面续上一块内存就行了
+      // 目前的大小 block_size
+      // 需要的大小 size
+      // 那么我们需要扩展一下heap 每次扩展至少一个page
+      assert(size > block_size);
+      mem_sbrk(size - block_size);
+      heap_size += size - block_size;
+      // 这里不用删除 因为我们是allocated的 没有在free list里面
+      // list_erase(ptr);
+      set_header(ptr, size | 1);
+      set_footer(ptr, size | 1);
+      // 同时也不需要加 因为 我们没有被free
+      // segregated_lists_insert(ptr, size);
+      // set end block
+      set_header(next(ptr), 1);
+    }
+
+    else if (!is_allocated(prev_footer) &&
+             block_size + get_size(prev_footer) >= size) {
+
+      // 在这种情况下 我们也需要合并
+
+      list_erase((list_node_t *)prev_block);
+      newSize = (block_size + get_size(prev_footer));
+      set_header(prev_block, newSize | 1);
+      set_footer(prev_block, newSize | 1);
+      // memcpy(prev_block, ptr, block_size - DWORD);
+      for (size_t i = 0; i < block_size - DWORD; ++i) {
+        prev_block[i] = *((byte_t *)(ptr) + i);
+      }
+
+      // 然后需要执行一次split
+      if (newSize - size >= MIN_BLOCK_SIZE) {
+        split(prev_block, size);
+      }
+      newptr = prev_block;
+
+    }
+
+    else {
       // 现在我们不得不重新分配一块更大的内存
       newptr = mm_malloc(initial_size);
       if (!newptr) {
@@ -672,7 +835,6 @@ void *mm_realloc(void *ptr, size_t size) {
     }
   }
 
-  debug_printf("realloc %p: \n", ptr);
   mm_check();
 
   return newptr;
