@@ -189,7 +189,7 @@ static list_node_t *segregated_lists = NULL;
 // static inline list_node_t *get_list_head() { return *(list_node_t
 // **)heap_ptr; }
 
-#define MAX_LINEAR_SIZE 128
+#define MAX_LINEAR_SIZE 160
 // 这个参数没有用了
 // #define MAX_SEGRETATED_SIZE 4096
 // 最后一部分手算吧 反正只需要修改这些宏就可以了
@@ -200,7 +200,7 @@ static list_node_t *segregated_lists = NULL;
 // 我们可以规划一块专门的小内存区域 这块区域不进行 coalease
 // 不用于大内存分配 同时 所占据的空间也应该较小 这样不至于特别浪费
 // #define CACHE_MALLOC_SIZE 4096
-#define SMALL_SIZE CHUNCK_SIZE
+#define SMALL_SIZE (CHUNCK_SIZE / 4)
 
 // #define MAX_LINEAR_SIZE 1024
 // #define MAX_SEGRETATED_SIZE 4096
@@ -237,8 +237,8 @@ static inline list_node_t *get_list_head(size_t size) {
   return segregated_lists + index;
 }
 
-#define DEBUG_FLAG 1
-#define CHECK_FLAG 1
+#define DEBUG_FLAG 0
+#define CHECK_FLAG 0
 
 void debug_printf(const char *format, ...) {
   if (DEBUG_FLAG) {
@@ -355,7 +355,6 @@ void mm_check(void) {
 
   // 现在check分成三部分
   // 第一部分 check small region
-  // byte_t *begin = heap_ptr +
   size_t small_size = 0;
   size_t small_free_block = 0;
   check_implicit_list(small_begin(), small_end(), &small_size,
@@ -364,9 +363,9 @@ void mm_check(void) {
   // 第二部分 check large region
   size_t large_size = 0;
   size_t large_free_block = 0;
-  check_contiguous_free(large_begin(), large_end());
   check_implicit_list(large_begin(), large_end(0), &large_size,
                       &large_free_block);
+  check_contiguous_free(large_begin(), large_end());
 
   size_t check_heap_size =
       small_size + large_size +                    // small region, large region
@@ -379,97 +378,6 @@ void mm_check(void) {
   size_t free_node = 0;
   check_segregated_lists(&free_node);
   assert(small_free_block + large_free_block == free_node);
-
-  // if (free_block_count != list_node_count) {
-  //   debug_printf("free block count: %d, list node count: %d\n",
-  //                free_block_count, list_node_count);
-  //   assert(free_block_count == list_node_count);
-  // }
-
-  // todo 这个函数也需要改了
-  // 我们需要从两个途径来遍历 一个是根据 implicit free list 遍历
-  // 一个是根据 explicit free list 来遍历
-  // 我只需要遍历整个链表就行了，
-  // 然后打印一下各个块的情况，ok
-  // size_t free_block_count = 0;
-  // // 这里我们需要跳过segregated storage
-  // byte_t *block_ptr =
-  //     (byte_t *)heap_ptr + SEGREGATED_LIST_SIZE * sizeof(list_node_t);
-
-  // // 现在block_ptr应该指向begin block
-  // word_t begin_block = *(word_t *)block_ptr;
-  // assert(begin_block == 1);
-  // block_ptr += DWORD;
-
-  // word_t header = get_header(block_ptr);
-  // word_t footer = get_footer(block_ptr);
-  // size_t block_size = get_size(header);
-  // while (block_size != 0) {
-  //   assert(header == footer);
-  //   // 输出一些信息
-  //   // 这个快的大小和是否分配
-  //   debug_printf("%zu/%d/%p:%p, ", block_size, is_allocated(header),
-  //                header_ptr(block_ptr), footer_ptr(block_ptr));
-  //   check_heap_size += block_size;
-  //   if (!is_allocated(header)) {
-  //     ++free_block_count;
-  //   }
-
-  //   block_ptr = next(block_ptr);
-  //   header = get_header(block_ptr);
-  //   footer = get_footer(block_ptr);
-  //   block_size = get_size(header);
-  // }
-  // debug_printf("\n");
-
-  // // 还要加上begin end 和 segregated storage
-  // check_heap_size += SEGREGATED_LIST_SIZE * sizeof(list_node_t) + DWORD;
-  // if (check_heap_size != heap_size) {
-  //   debug_printf("check heap size: %d, heap size: %d\n", check_heap_size,
-  //                heap_size);
-  //   assert(check_heap_size == heap_size);
-  // }
-  // debug_printf("check heap size: %d, heap size: %d\n", check_heap_size,
-  //              heap_size);
-
-  // 我需要保证所有free状态的节点都在freelist里面，她们两者应该是一一匹配的
-  // 这个要怎么检查呢??
-
-  // todo 这里最后再改
-  // 然后我需要遍历一下 explicit free list
-  // 我在这里统计free_list节点的数量就可以了
-  // size_t list_node_count = 0;
-  // list_node_t *head = get_list_head();
-  // for (list_node_t *first = head->next; first != head; first = first->next) {
-  //   // first 刚好就是 block_ptr 的地址 只不过需要指针类型转换
-  //   word_t header = get_header((byte_t *)first);
-  //   size_t block_size = get_size(header);
-  //   ++list_node_count;
-  // }
-
-  // 遍历所有的free list
-  // list_node_t *head = NULL;
-  // for (int i = 0; i < SEGREGATED_LIST_SIZE; ++i) {
-  //   head = &segregated_lists[i];
-  //   for (list_node_t *work = head->next; work != head; work = work->next) {
-  //     header = get_header((byte_t *)work);
-  //     block_size = get_size(header);
-  //     // todo 首先我们必须验证，我们的size是符合我们的size_class的
-  //     // 但是我怎么直到我们的size class呢??
-  //     // 通过size可以获得size class
-  //     // 我们还得验证我们是free的
-  //     assert(!is_allocated(header));
-  //     assert(i == size_class(block_size));
-  //     list_node_count++;
-  //   }
-  // }
-
-  // if (free_block_count != list_node_count) {
-  //   debug_printf("free block count: %d, list node count: %d\n",
-  //                free_block_count, list_node_count);
-  //   assert(free_block_count == list_node_count);
-  // }
-  // return 1;
 }
 
 // 确定一条原则，所有的size参数表示的都是整个block的大小
@@ -478,11 +386,21 @@ static inline void segregated_lists_insert(list_node_t *node, size_t size) {
   // 除非这里的size错了
   size_t block_size = get_size(get_header((byte_t *)node));
   assert(size == block_size);
-  list_insert_after(&segregated_lists[size_class(size)], node);
+  // 我们这需要根据size和small
+  if (is_small(node)) {
+    list_insert_after(&segregated_lists[size_class(size)], node);
+  } else {
+    list_insert_after(&segregated_lists[SEGREGATED_LIST_SIZE - 1], node);
+  }
 }
 
 // coalease block 一共有四种情况
 static byte_t *coalease(byte_t *block_ptr) {
+
+  // 如果我们在 small_region  直接退出就好了
+  if (is_small((list_node_t *)block_ptr)) {
+    return block_ptr;
+  }
 
   // 我需要拿到前面一个block的footer和后一个block的header
   word_t prev_footer = *prev_footer_ptr(block_ptr);
@@ -505,40 +423,28 @@ static byte_t *coalease(byte_t *block_ptr) {
     // 因为下一个要被合并了 所以应该从free list中删除
     list_erase((list_node_t *)next(block_ptr));
     // 因为我们自身的size也变了 所以我们自身也要从size中删除 然后再添加回去
-
   }
   // case3
   else if (!is_prev_allocated && is_next_allocated) {
 
     // 我们需要判断上一个是否在小内存区
-    if (prev(block_ptr) - (byte_t *)heap_ptr <= CHUNCK_SIZE) {
-
-    } else {
-      size += get_size(prev_footer);
-      // 我们要合并到上一个，所以删掉我们自己就行了
-      list_erase((list_node_t *)block_ptr);
-      block_ptr = prev(block_ptr);
-    }
+    size += get_size(prev_footer);
+    // 我们要合并到上一个，所以删掉我们自己就行了
+    list_erase((list_node_t *)block_ptr);
+    block_ptr = prev(block_ptr);
   }
   // case4
   else {
-    if (prev(block_ptr) - (byte_t *)heap_ptr <= CHUNCK_SIZE) {
-      // next_size = get_size(next_header)
-      size += get_size(next_header);
-      // 因为下一个要被合并了 所以应该从free list中删除
-      list_erase((list_node_t *)next(block_ptr));
-      // 因为我们自身的size也变了 所以我们自身也要从size中删除 然后再添加回去
-    } else {
-      // !is_prev_allocated && !is_next_allocated
-      size += get_size(prev_footer);
-      size += get_size(next_header);
 
-      // 我们和我们下一个都要合并到上一个 所以删掉我们和下一个就可以了
-      list_erase((list_node_t *)next(block_ptr));
-      list_erase((list_node_t *)block_ptr);
+    // !is_prev_allocated && !is_next_allocated
+    size += get_size(prev_footer);
+    size += get_size(next_header);
 
-      block_ptr = prev(block_ptr);
-    }
+    // 我们和我们下一个都要合并到上一个 所以删掉我们和下一个就可以了
+    list_erase((list_node_t *)next(block_ptr));
+    list_erase((list_node_t *)block_ptr);
+
+    block_ptr = prev(block_ptr);
   }
   // 我们不能简单的直接改header的size了 因为现在
   // size的大小会影响他在那个链表里面
@@ -556,8 +462,6 @@ static byte_t *extend_heap(size_t size) {
   // 先不管了
   // 就假设对齐了吧
 
-  // 在这里我们检查一下 是不是必须要extend_heap 是不是哪里出了问题
-
   word_t *brk = mem_sbrk(size);
   heap_size += size;
   // set header
@@ -567,14 +471,15 @@ static byte_t *extend_heap(size_t size) {
   // set epilogue block
   *(footer_ptr((byte_t *)brk) + 1) = 0 | 1;
 
+  // 如果是扩展的部分 那么必然是插入到最后一个链表的
+  // 不过这样自己选择也是对的 因为扩展heap的时候 size至少是 CHUNCK_SIZE
   // insert this new block into our explicit free list
   list_insert_after(get_list_head(size), (list_node_t *)brk);
 
   // 我们扩展一个heap 相当于在最后一个位置插入了一个块
   // 所以 如果前一个块是free的状态 还需要coalease
   // extend heap 放弃coalease
-  // return coalease((byte_t *)brk);
-  return (byte_t *)brk;
+  return coalease((byte_t *)brk);
 }
 
 // 写一个测试segregated storage的程序 现在看起来没有写对啊
@@ -701,13 +606,9 @@ byte_t *first_fit(list_node_t *head, size_t size) {
 //   return NULL;
 // }
 
-void coalease_heap() {
+void coalease_heap(byte_t *begin, byte_t *end) {
   // 拿到begin block 和 end block的地址
-  byte_t *begin_block =
-      (byte_t *)heap_ptr + SEGREGATED_LIST_SIZE * sizeof(list_node_t);
-  byte_t *end_block = (byte_t *)heap_ptr + heap_size;
-
-  byte_t *block_ptr = begin_block + DWORD;
+  byte_t *block_ptr = begin + DWORD;
   word_t header = 0;
   size_t block_size = 0;
   size_t size = 0;
@@ -716,10 +617,10 @@ void coalease_heap() {
   // 如果在小内存区域里面 我们就不进行coaleas
   block_ptr = (byte_t *)heap_ptr + CHUNCK_SIZE;
 
-  while (block_ptr != end_block) {
+  while (block_ptr != end) {
     size = 0;
     // 首先找到第一个free的block
-    for (; block_ptr != end_block; block_ptr = next(block_ptr)) {
+    for (; block_ptr != end; block_ptr = next(block_ptr)) {
       header = get_header(block_ptr);
       if (!is_allocated(header)) {
         break;
@@ -729,7 +630,7 @@ void coalease_heap() {
     coalease_ptr = block_ptr;
 
     // 接下来我们就要找到第一个allocated的block
-    for (; block_ptr != end_block; block_ptr = next(block_ptr)) {
+    for (; block_ptr != end; block_ptr = next(block_ptr)) {
       header = get_header(block_ptr);
       if (is_allocated(header)) {
         break;
@@ -753,7 +654,7 @@ void coalease_heap() {
     // 1. 不能又连续free
     // 2. 所有block大小必须一样
     bool prev_allocated = true;
-    for (block_ptr = (byte_t *)heap_ptr + CHUNCK_SIZE; block_ptr != end_block;
+    for (block_ptr = (byte_t *)heap_ptr + CHUNCK_SIZE; block_ptr != end;
          block_ptr = next(block_ptr)) {
       header = get_header(block_ptr);
       size += get_size(header);
@@ -766,57 +667,16 @@ void coalease_heap() {
   }
 }
 
-// todo 这里就需要从size对应的list开始找 找不到就找下一个
-// 到最后都找不到 就得extend heap了
-// size需要包含header和footer
-// find block 和 extend_heap 可以放在一起哎
 byte_t *find_block(size_t size) {
-  struct timespec begin;
-  clock_gettime(CLOCK_MONOTONIC, &begin);
-
-  // do something
-
-  // 我们有一个链表指针，始终指向第一个位置
-  // 结束的位置就是epi
-  // 那合理就必须得全部修改了
-  // 因为现在我们只需要遍历explict free list
   byte_t *block_ptr = NULL;
-  size_t class = size_class(size);
-  size_t i = class;
-  for (; i < SEGREGATED_LIST_SIZE; ++i) {
+  for (size_t i = size_class(size); i < SEGREGATED_LIST_SIZE; ++i) {
     block_ptr = first_fit(&segregated_lists[i], size);
     if (block_ptr) {
       return block_ptr;
     }
   }
-
-  // 最后一个我们倒着搜索 看看会不会有什么变化
-  // for (list_node_t *work = segregated_lists[i].prev;
-  //      work != &segregated_lists[i]; work = work->prev) {
-  //   word_t header = get_header((byte_t *)work);
-  //   size_t block_size = get_size(header);
-  //   if (!is_allocated(header) && size <= block_size) {
-  //     return (byte_t *)work;
-  //   }
-  // }
-
-  // 如果没有找到 那么我们就coalease 整个heap
-  coalease_heap();
-  i = class;
-  for (; i < SEGREGATED_LIST_SIZE; ++i) {
-    block_ptr = first_fit(&segregated_lists[i], size);
-    if (block_ptr) {
-      return block_ptr;
-    }
-  }
-
-  byte_t *ptr = extend_heap(umax(size, CHUNCK_SIZE));
-  struct timespec end;
-  clock_gettime(CLOCK_MONOTONIC, &end);
-  debug_printf("find_block: loop size: %d, costs: %ld\n", i - class,
-               end.tv_nsec - begin.tv_nsec);
-  // 那么我们就只能进行一个heap的extend
-  return ptr;
+  // 如果还是找不到 只能extend heap
+  return extend_heap(umax(size, CHUNCK_SIZE));
 }
 
 // 函数参数中的size应该代表什么
@@ -892,7 +752,7 @@ void mm_free(void *ptr) {
     segregated_lists_insert((list_node_t *)ptr, block_size);
 
     // 我们根据大小进行coalease 只有超过一定大小的才会在free的时候执行coalease
-    if (block_size > MAX_LINEAR_SIZE) {
+    if (is_large(ptr)) {
       coalease(ptr);
     }
     // 如果太小 直接标记成free就可以了
@@ -902,9 +762,7 @@ void mm_free(void *ptr) {
   mm_check();
 }
 
-bool is_last_block(byte_t *block_ptr) {
-  return get_header(next(block_ptr)) == 1;
-}
+bool is_last_block(byte_t *block_ptr) { return next(block_ptr) == large_end(); }
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
@@ -1016,12 +874,14 @@ void *mm_realloc(void *ptr, size_t size) {
         prev_block[i] = *((byte_t *)(ptr) + i);
       }
 
+      newptr = prev_block;
       // 然后需要执行一次split
       if (newSize - size >= MIN_BLOCK_SIZE) {
         split(prev_block, size);
+        // 只有split之后 才需要执行一个coalease
+        // 我们的下一个可能是free的 所以可能需要做一次coaleas
+        coalease(next(newptr));
       }
-      newptr = prev_block;
-
     }
 
     else {
