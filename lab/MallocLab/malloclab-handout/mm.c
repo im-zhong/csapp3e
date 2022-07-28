@@ -195,6 +195,11 @@ static list_node_t *segregated_lists = NULL;
 // (MAX_SEGRETATED_SIZE/MAX_LINEAR_SIZE) = 2^k
 #define SEGREGATED_LIST_SIZE ((MAX_LINEAR_SIZE / 8) + 5)
 
+// todo 又想到了一个点子
+// 我们可以规划一块专门的小内存区域 这块区域不进行 coalease
+// 不用于大内存分配 同时 所占据的空间也应该较小 这样不至于特别浪费
+#define CACHE_MALLOC_SIZE 4096
+
 // #define MAX_LINEAR_SIZE 1024
 // #define MAX_SEGRETATED_SIZE 4096
 // #define SEGREGATED_LIST_SIZE ((MAX_LINEAR_SIZE / 8) + 2)
@@ -431,22 +436,36 @@ static byte_t *coalease(byte_t *block_ptr) {
   }
   // case3
   else if (!is_prev_allocated && is_next_allocated) {
-    size += get_size(prev_footer);
-    // 我们要合并到上一个，所以删掉我们自己就行了
-    list_erase((list_node_t *)block_ptr);
-    block_ptr = prev(block_ptr);
+
+    // 我们需要判断上一个是否在小内存区
+    if (prev(block_ptr) - (byte_t *)heap_ptr <= CHUNCK_SIZE) {
+
+    } else {
+      size += get_size(prev_footer);
+      // 我们要合并到上一个，所以删掉我们自己就行了
+      list_erase((list_node_t *)block_ptr);
+      block_ptr = prev(block_ptr);
+    }
   }
   // case4
   else {
-    // !is_prev_allocated && !is_next_allocated
-    size += get_size(prev_footer);
-    size += get_size(next_header);
+    if (prev(block_ptr) - (byte_t *)heap_ptr <= CHUNCK_SIZE) {
+      // next_size = get_size(next_header)
+      size += get_size(next_header);
+      // 因为下一个要被合并了 所以应该从free list中删除
+      list_erase((list_node_t *)next(block_ptr));
+      // 因为我们自身的size也变了 所以我们自身也要从size中删除 然后再添加回去
+    } else {
+      // !is_prev_allocated && !is_next_allocated
+      size += get_size(prev_footer);
+      size += get_size(next_header);
 
-    // 我们和我们下一个都要合并到上一个 所以删掉我们和下一个就可以了
-    list_erase((list_node_t *)next(block_ptr));
-    list_erase((list_node_t *)block_ptr);
+      // 我们和我们下一个都要合并到上一个 所以删掉我们和下一个就可以了
+      list_erase((list_node_t *)next(block_ptr));
+      list_erase((list_node_t *)block_ptr);
 
-    block_ptr = prev(block_ptr);
+      block_ptr = prev(block_ptr);
+    }
   }
   // 我们不能简单的直接改header的size了 因为现在
   // size的大小会影响他在那个链表里面
@@ -480,7 +499,9 @@ static byte_t *extend_heap(size_t size) {
 
   // 我们扩展一个heap 相当于在最后一个位置插入了一个块
   // 所以 如果前一个块是free的状态 还需要coalease
-  return coalease((byte_t *)brk);
+  // extend heap 放弃coalease
+  // return coalease((byte_t *)brk);
+  return (byte_t *)brk;
 }
 
 // 写一个测试segregated storage的程序 现在看起来没有写对啊
@@ -542,16 +563,35 @@ int mm_init(void) {
   // begin block
   *brk = 0 | 1;
 
+  // 在init的时候，我们就把这一大块给切开，而且在coaleasing代码里面对这一块进行保护
+  // 那么我们就不会coalease了
+  // 这块地址就永远用于小内存
+  // 在最开始的时候 切成小内存块最大的内存块就可以了 然后插入到对应的链表中
+
   // 中间是一个大的payload 需要放置在合适的list里面
   // 那我们首先计算其大小
   size_t size =
       CHUNCK_SIZE - WORD - WORD - SEGREGATED_LIST_SIZE * sizeof(list_node_t);
   brk += 2;
 
-  set_header((byte_t *)brk, size);
-  set_footer((byte_t *)brk, size);
-  segregated_lists_insert((list_node_t *)brk, size);
-  brk = footer_ptr((byte_t *)brk);
+  byte_t *block_ptr = (byte_t *)brk;
+  while (size >= MAX_LINEAR_SIZE) {
+    set_header((byte_t *)block_ptr, MAX_LINEAR_SIZE);
+    set_footer((byte_t *)block_ptr, MAX_LINEAR_SIZE);
+    segregated_lists_insert((list_node_t *)block_ptr, MAX_LINEAR_SIZE);
+    size -= MAX_LINEAR_SIZE;
+    block_ptr = next((byte_t *)block_ptr);
+  }
+
+  // 然后在加上最后一块
+  // 不过最后一块可能会小于 MINIMUN_SIZE 啊
+  // 不过应该不会 我们可以assert一下
+  assert(size >= MIN_BLOCK_SIZE);
+  set_header(block_ptr, size);
+  set_footer(block_ptr, size);
+  segregated_lists_insert((list_node_t *)block_ptr, size);
+
+  brk = footer_ptr((byte_t *)block_ptr);
   // 插入到合适的位置 给定一个指针block 插入到合适的位置 可以写成一个函数
 
   // end block
@@ -607,6 +647,9 @@ void coalease_heap() {
   size_t size = 0;
   byte_t *coalease_ptr = NULL;
 
+  // 如果在小内存区域里面 我们就不进行coaleas
+  block_ptr = (byte_t *)heap_ptr + CHUNCK_SIZE;
+
   while (block_ptr != end_block) {
     size = 0;
     // 首先找到第一个free的block
@@ -639,12 +682,12 @@ void coalease_heap() {
 
   // 我们在这里进行一个check
   if (CHECK_FLAG) {
-    size = SEGREGATED_LIST_SIZE * sizeof(list_node_t) + DWORD;
+    size = CHUNCK_SIZE;
     // 从begin block 遍历到 end block
     // 1. 不能又连续free
     // 2. 所有block大小必须一样
     bool prev_allocated = true;
-    for (block_ptr = begin_block + DWORD; block_ptr != end_block;
+    for (block_ptr = (byte_t *)heap_ptr + CHUNCK_SIZE; block_ptr != end_block;
          block_ptr = next(block_ptr)) {
       header = get_header(block_ptr);
       size += get_size(header);
@@ -801,6 +844,14 @@ bool is_last_block(byte_t *block_ptr) {
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *ptr, size_t size) {
+
+  static int case1 = 0;
+  static int case2 = 0;
+  static int case3 = 0;
+  static int case4 = 0;
+  static int case5 = 0;
+  static int case6 = 0;
+
   debug_printf("realloc %p: \n", ptr);
   void *oldptr = ptr;
   void *newptr;
@@ -827,9 +878,11 @@ void *mm_realloc(void *ptr, size_t size) {
 
   // 艹 这里溢出了
   if (size <= block_size && block_size - size >= MIN_BLOCK_SIZE) {
+    case1++;
     split(ptr, size);
     newptr = ptr;
   } else if (size <= block_size) {
+    case2++;
   } else {
     // size > block_size
 
@@ -846,6 +899,7 @@ void *mm_realloc(void *ptr, size_t size) {
 
     if (!is_allocated(next_header) &&
         block_size + get_size(next_header) >= size) {
+      case3++;
       // 这里我们直接合并就可以了，然后再执行一次可选的split
       list_erase((list_node_t *)next_block);
       set_header(ptr, (block_size + get_size(next_header)) | 1);
@@ -860,6 +914,7 @@ void *mm_realloc(void *ptr, size_t size) {
     }
 
     else if (is_last_block(ptr)) {
+      case4++;
       // 我想统计一下一共会触发多少次
       static int last_block_trigger_count = 0;
       debug_printf("last block: %d\n", ++last_block_trigger_count);
@@ -883,7 +938,7 @@ void *mm_realloc(void *ptr, size_t size) {
 
     else if (!is_allocated(prev_footer) &&
              block_size + get_size(prev_footer) >= size) {
-
+      case5++;
       // 在这种情况下 我们也需要合并
 
       list_erase((list_node_t *)prev_block);
@@ -904,7 +959,7 @@ void *mm_realloc(void *ptr, size_t size) {
     }
 
     else {
-
+      case6++;
       // todo
       // 我又想到了一种情况，可以减少内存的分配
       // 就是尽可能的检测上方和下方的free block 如果
@@ -925,6 +980,10 @@ void *mm_realloc(void *ptr, size_t size) {
   }
 
   mm_check();
+
+  // printf("case1: %d, case2: %d, case3： %d, case4: %d, case5: %d, case6:
+  // %d\n",
+  //        case1, case2, case3, case4, case5, case6);
 
   return newptr;
 }
