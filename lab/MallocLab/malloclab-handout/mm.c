@@ -10,7 +10,6 @@
  * comment that gives a high level description of your solution.
  */
 #include <assert.h>
-#include <limits.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -120,16 +119,6 @@ static inline void list_erase(list_node_t *node) {
   list_erase_between(node->prev, node->next);
 }
 
-static size_t list_size(list_node_t *head) {
-  size_t size = 0;
-  for (list_node_t *node = head->next; node != head; node = node->next) {
-    ++size;
-  }
-  return size;
-}
-
-// 或许让链表有序会好一点吧
-
 // static inline unsigned ulog2(unsigned x) {
 //   float fx = (float)x;
 //   unsigned ux = *(unsigned *)&fx;
@@ -200,7 +189,7 @@ static list_node_t *segregated_lists = NULL;
 // static inline list_node_t *get_list_head() { return *(list_node_t
 // **)heap_ptr; }
 
-#define MAX_LINEAR_SIZE 136
+#define MAX_LINEAR_SIZE 512
 // 这个参数没有用了
 // #define MAX_SEGRETATED_SIZE 4096
 // 最后一部分手算吧 反正只需要修改这些宏就可以了
@@ -211,7 +200,7 @@ static list_node_t *segregated_lists = NULL;
 // 我们可以规划一块专门的小内存区域 这块区域不进行 coalease
 // 不用于大内存分配 同时 所占据的空间也应该较小 这样不至于特别浪费
 // #define CACHE_MALLOC_SIZE 4096
-#define SMALL_SIZE (CHUNCK_SIZE / 4)
+#define SMALL_SIZE (4096 / 2)
 
 // #define MAX_LINEAR_SIZE 1024
 // #define MAX_SEGRETATED_SIZE 4096
@@ -341,7 +330,7 @@ void check_segregated_lists(size_t *free_node) {
       header = get_header((byte_t *)work);
       block_size = get_size(header);
       assert(!is_allocated(header));
-      assert(is_small(work));
+      // assert(is_small(work));
       assert(size_class(block_size) == i);
       ++(*free_node);
     }
@@ -358,15 +347,12 @@ void check_segregated_lists(size_t *free_node) {
   }
 }
 
-void check_large_list_ordered() {
-  size_t block_size = 0;
-  list_node_t *head = NULL;
-  size_t prev_size = UINT_MAX;
-  head = &segregated_lists[SEGREGATED_LIST_SIZE - 1];
-  for (list_node_t *work = head->next; work != head; work = work->next) {
-    block_size = get_size(get_header((byte_t *)work));
-    assert(block_size <= prev_size);
-    prev_size = block_size;
+void check_small() {
+  // 遍历small region 不能有某个块的大小 超过规定的大小
+  byte_t *begin = small_begin();
+  byte_t *end = small_end();
+  for (byte_t *block = begin + DWORD; block != end; block = next(block)) {
+    assert(get_size(get_header(block)) <= MAX_LINEAR_SIZE);
   }
 }
 
@@ -382,6 +368,7 @@ void mm_check(void) {
   size_t small_free_block = 0;
   check_implicit_list(small_begin(), small_end(), &small_size,
                       &small_free_block);
+  check_small();
 
   // 第二部分 check large region
   size_t large_size = 0;
@@ -401,8 +388,6 @@ void mm_check(void) {
   size_t free_node = 0;
   check_segregated_lists(&free_node);
   assert(small_free_block + large_free_block == free_node);
-
-  check_large_list_ordered();
 }
 
 // 确定一条原则，所有的size参数表示的都是整个block的大小
@@ -412,26 +397,14 @@ static inline void segregated_lists_insert(list_node_t *node, size_t size) {
   size_t block_size = get_size(get_header((byte_t *)node));
   assert(size == block_size);
   // 我们这需要根据size和small
-  if (is_small(node)) {
-    list_insert_after(&segregated_lists[size_class(size)], node);
-  } else {
-    // 如果是向这个链表里面插入数据 我们需要排序 从大到小排
-    // 那我们首先需要遍历整张数组
-    // 测试一下 性能可能会很差
-    list_node_t *head = &segregated_lists[SEGREGATED_LIST_SIZE - 1];
-    list_node_t *work = head->next;
-    // check_large_list_ordered();
-    for (; work != head; work = work->next) {
-      // find the one which size is small than ours
-      block_size = get_size(get_header((byte_t *)work));
-      if (size >= block_size) {
-        break;
-      }
-    }
-
-    list_insert_before(work, node);
-    // check_large_list_ordered();
-  }
+  // 这里再改一下 还是改成根据size class 来插入 只不过coalease的时候
+  // 只能根据region决定是否可以coalease
+  list_insert_after(&segregated_lists[size_class(size)], node);
+  // if (is_small(node)) {
+  //   list_insert_after(&segregated_lists[size_class(size)], node);
+  // } else {
+  //   list_insert_after(&segregated_lists[SEGREGATED_LIST_SIZE - 1], node);
+  // }
 }
 
 // coalease block 一共有四种情况
@@ -708,35 +681,13 @@ void coalease_heap(byte_t *begin, byte_t *end) {
 }
 
 byte_t *find_block(size_t size) {
-  struct timespec begin;
-  clock_gettime(CLOCK_MONOTONIC, &begin);
-
-  // do something
   byte_t *block_ptr = NULL;
-  size_t i = size_class(size);
-  for (; i < SEGREGATED_LIST_SIZE - 1; ++i) {
+  for (size_t i = size_class(size); i < SEGREGATED_LIST_SIZE; ++i) {
     block_ptr = first_fit(&segregated_lists[i], size);
     if (block_ptr) {
       return block_ptr;
     }
   }
-
-  // 遍历最后一个 因为这个链表是有序的 所以只需要查看第一个即可
-  list_node_t *head = &segregated_lists[SEGREGATED_LIST_SIZE - 1];
-  list_node_t *work = head->next;
-  if (work != head) {
-    word_t header = get_header((byte_t *)work);
-    size_t block_size = get_size(header);
-    if (size <= block_size) {
-      return (byte_t *)work;
-    }
-  }
-
-  struct timespec end;
-  clock_gettime(CLOCK_MONOTONIC, &end);
-  // printf("find_block: size: %zu, costs: %ld\n", size,
-  //        end.tv_nsec - begin.tv_nsec);
-
   // 如果还是找不到 只能extend heap
   return extend_heap(umax(size, CHUNCK_SIZE));
 }
@@ -871,6 +822,20 @@ void *mm_realloc(void *ptr, size_t size) {
     case2++;
   } else {
     // size > block_size
+    // 我们需要判断我们是不是在 small_region 并且最终的大小超过了限制
+    // 那么只能调用malloc了
+    if (is_small(ptr) && size > MAX_LINEAR_SIZE) {
+      // 在这种情况下，我们直接调用malloc 即可
+      newptr = mm_malloc(initial_size);
+      if (!newptr) {
+        return NULL;
+      }
+
+      copySize = block_size - DWORD;
+      memcpy(newptr, oldptr, copySize);
+      mm_free(oldptr);
+      return newptr;
+    }
 
     // 还有一种情况 就是前面的一个block也是free的 这样我们就可以利用前面的block
     // 从而不用再申请内存了
