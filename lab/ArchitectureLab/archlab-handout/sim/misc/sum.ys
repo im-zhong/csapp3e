@@ -32,11 +32,11 @@ sum:
     jmp L2
 L3:
     mrmovq (%rdi), %r8
-    addq %r8, %rax       # add list->val to %rax
+    addq %r8, %rax          # add list->val to %rax
     mrmovq 8(%rdi), %rdi    # list = list->next
 L2:
     andq %rdi, %rdi         # test if list pointer is 0
-    jne L3                 # if list pointer is not 0, jump to L3
+    jne L3                  # if list pointer is not 0, jump to L3
     ret
 
 # Stack starts here and grows to lower addresses

@@ -30,8 +30,8 @@ main:
 
 copy_block:
     xorq %rcx, %rcx         # result = 0
-    jmp L12
-L13:
+    jmp L1
+L2:
     mrmovq (%rdi), %rax     # val = *src
     rmmovq %rax, (%rsi)     # *dest = val
     xorq %rax, %rcx         # result ^= val
@@ -42,13 +42,12 @@ L13:
 
     irmovq $1, %r8          
     subq %r8, %rdx          # len--
-L12:
-    andq %rdx, %rdx     # len > 0
-    jg L13
+L1:
+    andq %rdx, %rdx         # len > 0
+    jg L2
     rrmovq %rcx, %rax
     ret
 
-
 # Stack starts here and grows to lower addresses
-	.pos 0x200
+.pos 0x200
 stack:
