@@ -23,15 +23,17 @@ ncopy:
 	jge Loop			# if so, goto Done:
 
 Remain:
-	iaddq $8, %rdx
+	iaddq $4, %rdx
 Table:
-	je Done
-	iaddq $-1, %rdx
-	je remain1
-	iaddq $-1, %rdx
-	je remain2
-	iaddq $-1, %rdx
+	jge LastEight
+
+	iaddq $1, %rdx
 	je remain3
+	iaddq $1, %rdx
+	je remain2
+	iaddq $1, %rdx
+	je remain1
+	ret
 	
 	# 否则我们在这里进行一个一定的四路
 LastEight:
@@ -63,7 +65,8 @@ LastEightL4:
 
 	iaddq $32, %rdi
 	iaddq $32, %rsi
-	iaddq $-1, %rdx
+
+	andq %rdx, %rdx
 	je Done
 	iaddq $-1, %rdx
 	je remain1
