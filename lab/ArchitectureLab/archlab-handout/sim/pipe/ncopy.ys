@@ -15,36 +15,39 @@ ncopy:
 
 ##################################################################
 # You can modify this portion
-# 53.5
-	# Loop header, step = 8
+	# Loop header
+	# step = 8
 	xorq %rax, %rax		# count = 0;
 
+	# special case
+	# if array length is 1, jump to Final1 directly
 	iaddq $-1, %rdx
-	je remain1
+	je Final1
 
-	iaddq $-7, %rdx		# len <= 0?
-	jl Remain			# if so, goto Done:
+	# because we sub 1 from %rdx, so we sub 7 at here
+	iaddq $-7, %rdx		# len <= step?
+	jl Final			# if so, goto Done:
 
 Loop:	
-	# lode/use hazard
 	mrmovq (%rdi), %r8	# read val from src...
 	mrmovq 8(%rdi), %r9
-	mrmovq 16(%rdi), %r10	# read val from src...
+	mrmovq 16(%rdi), %r10	
 	mrmovq 24(%rdi), %r11
-	mrmovq 32(%rdi), %r12	# read val from src...
+	mrmovq 32(%rdi), %r12	
 	mrmovq 40(%rdi), %r13
-	mrmovq 48(%rdi), %r14	# read val from src...
+	mrmovq 48(%rdi), %r14	
 	mrmovq 56(%rdi), %rcx
 
 	rmmovq %r8, (%rsi)	# ...and store it to dst
 	rmmovq %r9, 8(%rsi)
-	rmmovq %r10, 16(%rsi)	# ...and store it to dst
+	rmmovq %r10, 16(%rsi)	
 	rmmovq %r11, 24(%rsi)
-	rmmovq %r12, 32(%rsi)	# ...and store it to dst
+	rmmovq %r12, 32(%rsi)	
 	rmmovq %r13, 40(%rsi)
-	rmmovq %r14, 48(%rsi)	# ...and store it to dst
+	rmmovq %r14, 48(%rsi)	
 	rmmovq %rcx, 56(%rsi)
 
+	# accumulate positive count
 	andq %r8, %r8
 	jl L1
 	iaddq $1, %rax
@@ -77,68 +80,27 @@ L7:
 	jl L8
 	iaddq $1, %rax
 L8:
-	
-Npos:	
 	iaddq $64, %rdi
 	iaddq $64, %rsi
 	iaddq $-8, %rdx
-	jge Loop				# if so, goto Loop:
-	# jmp Remain
+	jge Loop			# if final array elements > step, loop
 
-Remain:
-	iaddq $4, %rdx
-Table:
-	jge LastEight
+Final:					# otherwise, enter final stage
+	# if final element size >= 4
+	iaddq $4, %rdx		
+	jge Final4
 
+	# otherwise, jump to relative branch
 	iaddq $1, %rdx
-	je remain3
+	je Final3
 	iaddq $1, %rdx
-	je remain2
+	je Final2
 	iaddq $1, %rdx
-	je remain1
+	je Final1
 	ret
-	
-	# 否则我们在这里进行一个一定的四路
-LastEight:
-	mrmovq (%rdi), %r8	# read val from src...
-	mrmovq 8(%rdi), %r9
-	mrmovq 16(%rdi), %r10	# read val from src...
-	mrmovq 24(%rdi), %r11
-	rmmovq %r8, (%rsi)	# ...and store it to dst
-	rmmovq %r9, 8(%rsi)
-	rmmovq %r10, 16(%rsi)	# ...and store it to dst
-	rmmovq %r11, 24(%rsi)
 
-	andq %r8, %r8
-	jl LastEightL1
-	iaddq $1, %rax
-LastEightL1:
-	andq %r9, %r9
-	jl LastEightL2
-	iaddq $1, %rax
-LastEightL2:
-	andq %r10, %r10
-	jl LastEightL3
-	iaddq $1, %rax
-LastEightL3:
-	andq %r11, %r11
-	jl LastEightL4
-	iaddq $1, %rax
-LastEightL4:
-
-	iaddq $32, %rdi
-	iaddq $32, %rsi
-
-	andq %rdx, %rdx
-	je Done
-	iaddq $-1, %rdx
-	je remain1
-	iaddq $-1, %rdx
-	je remain2
-	iaddq $-1, %rdx
-	je remain3
-
-remain1:
+# final element size == 1
+Final1:
 	mrmovq (%rdi), %r8
 	rmmovq %r8, (%rsi)
 	andq %r8, %r8
@@ -146,45 +108,85 @@ remain1:
 	iaddq $1, %rax
 	ret
 
-remain2:
-	mrmovq (%rdi), %r8	# read val from src...
+# final element size == 2
+Final2:
+	mrmovq (%rdi), %r8
 	mrmovq 8(%rdi), %r9
-
-	rmmovq %r8, (%rsi)	# ...and store it to dst
+	rmmovq %r8, (%rsi)
 	rmmovq %r9, 8(%rsi)
-
 	andq %r8, %r8
-	jl remain2L1
+	jl Final2L1
 	iaddq $1, %rax
-remain2L1:
+Final2L1:
 	andq %r9, %r9
-	jl remain2L2
+	jl Final2L2
 	iaddq $1, %rax
-remain2L2:
+Final2L2:
 	ret
 
-remain3:
-	mrmovq (%rdi), %r8	# read val from src...
+# final element size == 3
+Final3:
+	mrmovq (%rdi), %r8
 	mrmovq 8(%rdi), %r9
-	mrmovq 16(%rdi), %r10	# read val from src...
-
-	rmmovq %r8, (%rsi)	# ...and store it to dst
+	mrmovq 16(%rdi), %r10
+	rmmovq %r8, (%rsi)
 	rmmovq %r9, 8(%rsi)
-	rmmovq %r10, 16(%rsi)	# ...and store it to dst
-
+	rmmovq %r10, 16(%rsi)
 	andq %r8, %r8
-	jl remain3L1
+	jl Final3L1
 	iaddq $1, %rax
-remain3L1:
+Final3L1:
 	andq %r9, %r9
-	jl remain3L2
+	jl Final3L2
 	iaddq $1, %rax
-remain3L2:
+Final3L2:
 	andq %r10, %r10
-	jl remain3L3
+	jl Final3L3
 	iaddq $1, %rax
-remain3L3:
-	ret	
+Final3L3:
+	ret
+
+# final element size >= 4
+Final4:
+	# load 4 elements
+	mrmovq (%rdi), %r8
+	mrmovq 8(%rdi), %r9
+	mrmovq 16(%rdi), %r10
+	mrmovq 24(%rdi), %r11
+	# store 4 elements
+	rmmovq %r8, (%rsi)
+	rmmovq %r9, 8(%rsi)
+	rmmovq %r10, 16(%rsi)
+	rmmovq %r11, 24(%rsi)
+	# accumulate positive number counts
+	andq %r8, %r8
+	jl Final4L1
+	iaddq $1, %rax
+Final4L1:
+	andq %r9, %r9
+	jl Final4L2
+	iaddq $1, %rax
+Final4L2:
+	andq %r10, %r10
+	jl Final4L3
+	iaddq $1, %rax
+Final4L3:
+	andq %r11, %r11
+	jl Final4L4
+	iaddq $1, %rax
+Final4L4:
+	iaddq $32, %rdi
+	iaddq $32, %rsi
+	# because element size >= 4, <= 7
+	# so we have four possiblities, which are final1, final2, final3 and none
+	andq %rdx, %rdx
+	je Done
+	iaddq $-1, %rdx
+	je Final1
+	iaddq $-1, %rdx
+	je Final2
+	iaddq $-1, %rdx
+	je Final3
 
 ##################################################################
 # Do not modify the following section of code
