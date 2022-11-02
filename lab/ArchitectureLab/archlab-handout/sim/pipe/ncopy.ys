@@ -20,8 +20,6 @@ ncopy:
 	iaddq $-1, %rdx
 	je remain1
 	iaddq $-7, %rdx		# len <= 0?
-	# 这里可以改一下啊，因为还是>8的情况多呀
-	# 但是总时间却变慢了 因为小数组的周期实在太长了 现在需要缩短小数组的周期才行
 	jge Loop			# if so, goto Done:
 
 Remain:
