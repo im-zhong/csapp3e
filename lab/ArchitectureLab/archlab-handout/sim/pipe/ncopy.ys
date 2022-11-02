@@ -15,13 +15,75 @@ ncopy:
 
 ##################################################################
 # You can modify this portion
-# 53.2
+# 53.5
 	# Loop header, step = 8
 	xorq %rax, %rax		# count = 0;
+
 	iaddq $-1, %rdx
 	je remain1
+
 	iaddq $-7, %rdx		# len <= 0?
-	jge Loop			# if so, goto Done:
+	jl Remain			# if so, goto Done:
+
+Loop:	
+	# lode/use hazard
+	mrmovq (%rdi), %r8	# read val from src...
+	mrmovq 8(%rdi), %r9
+	mrmovq 16(%rdi), %r10	# read val from src...
+	mrmovq 24(%rdi), %r11
+	mrmovq 32(%rdi), %r12	# read val from src...
+	mrmovq 40(%rdi), %r13
+	mrmovq 48(%rdi), %r14	# read val from src...
+	mrmovq 56(%rdi), %rcx
+
+	rmmovq %r8, (%rsi)	# ...and store it to dst
+	rmmovq %r9, 8(%rsi)
+	rmmovq %r10, 16(%rsi)	# ...and store it to dst
+	rmmovq %r11, 24(%rsi)
+	rmmovq %r12, 32(%rsi)	# ...and store it to dst
+	rmmovq %r13, 40(%rsi)
+	rmmovq %r14, 48(%rsi)	# ...and store it to dst
+	rmmovq %rcx, 56(%rsi)
+
+	andq %r8, %r8
+	jl L1
+	iaddq $1, %rax
+L1:
+	andq %r9, %r9
+	jl L2
+	iaddq $1, %rax
+L2:
+	andq %r10, %r10
+	jl L3
+	iaddq $1, %rax
+L3:
+	andq %r11, %r11
+	jl L4
+	iaddq $1, %rax
+L4:
+	andq %r12, %r12
+	jl L5
+	iaddq $1, %rax
+L5:
+	andq %r13, %r13
+	jl L6
+	iaddq $1, %rax
+L6:
+	andq %r14, %r14
+	jl L7
+	iaddq $1, %rax
+L7:
+	andq %rcx, %rcx
+	jl L8
+	iaddq $1, %rax
+L8:
+	
+Npos:	
+	iaddq $64, %rdi
+	iaddq $64, %rsi
+	iaddq $-8, %rdx
+	jge Loop				# if so, goto Loop:
+	# jmp Remain
 
 Remain:
 	iaddq $4, %rdx
@@ -123,66 +185,6 @@ remain3L2:
 	iaddq $1, %rax
 remain3L3:
 	ret	
-
-Loop:	
-	# lode/use hazard
-	mrmovq (%rdi), %r8	# read val from src...
-	mrmovq 8(%rdi), %r9
-	mrmovq 16(%rdi), %r10	# read val from src...
-	mrmovq 24(%rdi), %r11
-	mrmovq 32(%rdi), %r12	# read val from src...
-	mrmovq 40(%rdi), %r13
-	mrmovq 48(%rdi), %r14	# read val from src...
-	mrmovq 56(%rdi), %rcx
-
-	rmmovq %r8, (%rsi)	# ...and store it to dst
-	rmmovq %r9, 8(%rsi)
-	rmmovq %r10, 16(%rsi)	# ...and store it to dst
-	rmmovq %r11, 24(%rsi)
-	rmmovq %r12, 32(%rsi)	# ...and store it to dst
-	rmmovq %r13, 40(%rsi)
-	rmmovq %r14, 48(%rsi)	# ...and store it to dst
-	rmmovq %rcx, 56(%rsi)
-
-	andq %r8, %r8
-	jl L1
-	iaddq $1, %rax
-L1:
-	andq %r9, %r9
-	jl L2
-	iaddq $1, %rax
-L2:
-	andq %r10, %r10
-	jl L3
-	iaddq $1, %rax
-L3:
-	andq %r11, %r11
-	jl L4
-	iaddq $1, %rax
-L4:
-	andq %r12, %r12
-	jl L5
-	iaddq $1, %rax
-L5:
-	andq %r13, %r13
-	jl L6
-	iaddq $1, %rax
-L6:
-	andq %r14, %r14
-	jl L7
-	iaddq $1, %rax
-L7:
-	andq %rcx, %rcx
-	jl L8
-	iaddq $1, %rax
-L8:
-	
-Npos:	
-	iaddq $64, %rdi
-	iaddq $64, %rsi
-	iaddq $-8, %rdx
-	jge Loop				# if so, goto Loop:
-	jmp Remain
 
 ##################################################################
 # Do not modify the following section of code
