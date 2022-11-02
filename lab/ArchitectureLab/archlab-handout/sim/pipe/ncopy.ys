@@ -15,45 +15,171 @@ ncopy:
 
 ##################################################################
 # You can modify this portion
-	# Loop header
-	xorq %rax,%rax		# count = 0;
-	andq %rdx,%rdx		# len <= 0?
-	irmovq $1, %r8
+	# Loop header, step = 8
+	xorq %rax, %rax		# count = 0;
+	iaddq $-8, %rdx		# len <= 0?
+	# 这里可以改一下啊，因为还是>8的情况多呀
+	# 但是总时间却变慢了 因为小数组的周期实在太长了 现在需要缩短小数组的周期才行
+	jge Loop			# if so, goto Done:
 
-	jle Done			# if so, goto Done:
+Remain:
+	iaddq $8, %rdx
+Table:
+	je Done
+	iaddq $-1, %rdx
+	je remain1
+	iaddq $-1, %rdx
+	je remain2
+	iaddq $-1, %rdx
+	je remain3
+	
+	# 否则我们在这里进行一个一定的四路
+LastEight:
+	mrmovq (%rdi), %r8	# read val from src...
+	mrmovq 8(%rdi), %r9
+	mrmovq 16(%rdi), %r10	# read val from src...
+	mrmovq 24(%rdi), %r11
+	rmmovq %r8, (%rsi)	# ...and store it to dst
+	rmmovq %r9, 8(%rsi)
+	rmmovq %r10, 16(%rsi)	# ...and store it to dst
+	rmmovq %r11, 24(%rsi)
+
+	andq %r8, %r8
+	jl LastEightL1
+	iaddq $1, %rax
+LastEightL1:
+	andq %r9, %r9
+	jl LastEightL2
+	iaddq $1, %rax
+LastEightL2:
+	andq %r10, %r10
+	jl LastEightL3
+	iaddq $1, %rax
+LastEightL3:
+	andq %r11, %r11
+	jl LastEightL4
+	iaddq $1, %rax
+LastEightL4:
+
+	iaddq $32, %rdi
+	iaddq $32, %rsi
+	iaddq $-1, %rdx
+	je Done
+	iaddq $-1, %rdx
+	je remain1
+	iaddq $-1, %rdx
+	je remain2
+	iaddq $-1, %rdx
+	je remain3
+
+remain1:
+	mrmovq (%rdi), %r8
+	rmmovq %r8, (%rsi)
+	andq %r8, %r8
+	jle Done
+	iaddq $1, %rax
+	ret
+
+remain2:
+	mrmovq (%rdi), %r8	# read val from src...
+	mrmovq 8(%rdi), %r9
+
+	rmmovq %r8, (%rsi)	# ...and store it to dst
+	rmmovq %r9, 8(%rsi)
+
+	andq %r8, %r8
+	jl remain2L1
+	iaddq $1, %rax
+remain2L1:
+	andq %r9, %r9
+	jl remain2L2
+	iaddq $1, %rax
+remain2L2:
+	ret
+
+remain3:
+	mrmovq (%rdi), %r8	# read val from src...
+	mrmovq 8(%rdi), %r9
+	mrmovq 16(%rdi), %r10	# read val from src...
+
+	rmmovq %r8, (%rsi)	# ...and store it to dst
+	rmmovq %r9, 8(%rsi)
+	rmmovq %r10, 16(%rsi)	# ...and store it to dst
+
+	andq %r8, %r8
+	jl remain3L1
+	iaddq $1, %rax
+remain3L1:
+	andq %r9, %r9
+	jl remain3L2
+	iaddq $1, %rax
+remain3L2:
+	andq %r10, %r10
+	jl remain3L3
+	iaddq $1, %rax
+remain3L3:
+	ret	
 
 Loop:	
 	# lode/use hazard
-	mrmovq (%rdi), %r10	# read val from src...
-	irmovq $0, %r9
-	rmmovq %r10, (%rsi)	# ...and store it to dst
+	mrmovq (%rdi), %r8	# read val from src...
+	mrmovq 8(%rdi), %r9
+	mrmovq 16(%rdi), %r10	# read val from src...
+	mrmovq 24(%rdi), %r11
+	mrmovq 32(%rdi), %r12	# read val from src...
+	mrmovq 40(%rdi), %r13
+	mrmovq 48(%rdi), %r14	# read val from src...
+	mrmovq 56(%rdi), %rcx
 
-	# 这个跳转最好用cmov去掉
-	andq %r10, %r10		# val <= 0?
-	# jle Npos			# if so, goto Npos:
+	rmmovq %r8, (%rsi)	# ...and store it to dst
+	rmmovq %r9, 8(%rsi)
+	rmmovq %r10, 16(%rsi)	# ...and store it to dst
+	rmmovq %r11, 24(%rsi)
+	rmmovq %r12, 32(%rsi)	# ...and store it to dst
+	rmmovq %r13, 40(%rsi)
+	rmmovq %r14, 48(%rsi)	# ...and store it to dst
+	rmmovq %rcx, 56(%rsi)
 
-	# 用iaddq代替
-	cmovle %r8, %r9
-	# irmovq $1, %r10
-	# addq %r10, %rax		# count++
-	addq %r8, %rax
+	andq %r8, %r8
+	jl L1
+	iaddq $1, %rax
+L1:
+	andq %r9, %r9
+	jl L2
+	iaddq $1, %rax
+L2:
+	andq %r10, %r10
+	jl L3
+	iaddq $1, %rax
+L3:
+	andq %r11, %r11
+	jl L4
+	iaddq $1, %rax
+L4:
+	andq %r12, %r12
+	jl L5
+	iaddq $1, %rax
+L5:
+	andq %r13, %r13
+	jl L6
+	iaddq $1, %rax
+L6:
+	andq %r14, %r14
+	jl L7
+	iaddq $1, %rax
+L7:
+	andq %rcx, %rcx
+	jl L8
+	iaddq $1, %rax
+L8:
+	
 Npos:	
-	# 这里换成 iaddq 可以变成三条指令
-	iaddq $8, %rdi
-	iaddq $8, %rsi
-	# 最后一条指令放在这里，就不用再使用 andq 修改cc了
-	# 同时jg变成jge
-	iaddq $-1, %rdx
-
-	# irmovq $1, %r10
-	# subq %r10, %rdx		# len--
-	# irmovq $8, %r10
-	# addq %r10, %rdi		# src++
-	# addq %r10, %rsi		# dst++
-
-	# andq %rdx,%rdx		# len > 0?
-	# jg Loop				# if so, goto Loop:
+	iaddq $64, %rdi
+	iaddq $64, %rsi
+	iaddq $-8, %rdx
 	jge Loop				# if so, goto Loop:
+	jmp Remain
+
 ##################################################################
 # Do not modify the following section of code
 # Function epilogue.
